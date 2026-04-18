@@ -115,6 +115,7 @@ export default taskflow('scrape-don').run(async ({ phase, session }) => {
 | `timeoutMs?: number` | Per-session timeout. On expiry, status promotes to `timeout`. |
 | `rulesPrefix?: boolean` | Default `true`. Set `false` to opt out of the rules prefix for this session. |
 | `schema?: z.ZodType<T>` | Zod schema for structured output. When set, `session()` returns `Promise<T>` (validated). When omitted, returns `Promise<string>`. |
+| `dependsOn?: string[]` | Declarative DAG edges. Engine waits for every listed session id to resolve before spawning this session. Unknown ids throw; failed deps cascade as `dependency failed — <msg>`. See [DAG with dependsOn](#dag-with-dependson). |
 
 ### Structured output — how it really flies
 
@@ -251,6 +252,8 @@ Every hook is `(ctx: HookCtx, payload: HookPayloads[N]) => HookReturns[N] | Prom
 | `beforeSpawn`   | immediately before `adapter.spawn(...)` | `{ spec }` | `{ spec? } \| void` — last chance to mutate spec |
 | `afterSpawn`    | immediately after spawn, with the live `handle` | `{ spec; handle }` | `void` |
 
+`SessionSpec` also accepts a `dependsOn?: string[]` field for declarative ordering between sibling sessions — the engine waits for the listed ids before entering `leaf()` (and so before any of these hooks fire). See [DAG with dependsOn](#dag-with-dependson).
+
 ### Streaming
 
 Each event the adapter emits flows through one `before*` (mutate/drop) and, if not dropped, one `after*` (observe).
@@ -268,7 +271,28 @@ Each event the adapter emits flows through one `before*` (mutate/drop) and, if n
 
 | Hook | Payload | Return |
 |---|---|---|
-| `onError` | `{ leafId?; error }` (fired for `t:'error'` adapter events) | `{ swallow? } \| void` |
+| `onError` | `{ leafId?; error }` | `{ swallow? } \| void` |
+
+`onError` fires on **two** sources now:
+
+1. Adapter `t:'error'` stream events (the original path).
+2. Any exception the engine catches inside `leaf()` — spawn failures, hook handler throws with `errorPolicy: 'throw'`, schema validation failures, timeouts, etc. Previously these bypassed `onError` and rejected the session promise directly.
+
+Returning `{ swallow: true }` resolves the leaf with a synthetic error-status `LeafResult` (`status: 'error'`, the error's message in `error`) instead of rethrowing. The session promise still rejects — `swallow` affects the engine's internal propagation and the manifest entry, not the caller-facing promise.
+
+```ts
+// .agents/taskflow/config.ts — turn transient adapter crashes into soft errors
+export default defineConfig({
+  events: {
+    onError: async (ctx, { leafId, error }) => {
+      if (/ECONNRESET|fetch failed/i.test(error.message)) {
+        ctx.logger.warn(`[${leafId ?? '-'}] swallowing transient: ${error.message}`);
+        return { swallow: true };
+      }
+    },
+  },
+});
+```
 
 ### Response & verify
 
@@ -333,6 +357,32 @@ interface HookCtx {
 }
 ```
 
+### `ctx.steer(text)` and `ctx.abort(reason)`
+
+Imperative actions that drive the live adapter handle. As of `taskflow-sdk@0.1.4` both now fire their corresponding lifecycle hooks:
+
+- `ctx.steer(text)` fires `beforeSteer` → (adapter.steer) → `afterSteer` with `{ leafId, content: text }`.
+- `ctx.abort(reason?)` fires `beforeAbort` → (adapter.abort) → `afterAbort` with `{ leafId, reason }`.
+
+Both honour `{ cancel: true }` from the `before*` return to no-op the action. `beforeSteer` additionally honours `{ content: string }` to rewrite the steer text before it reaches the adapter — handy for redaction, translation, or prepending standing guidance.
+
+```ts
+// .agents/taskflow/config.ts — prefix every steer with a standing reminder
+export default defineConfig({
+  events: {
+    beforeSteer: async (_ctx, { content }) => {
+      return { content: `Reminder: keep edits under 20 lines.\n\n${content}` };
+    },
+    beforeAbort: async (ctx, { reason }) => {
+      if (reason === 'user-cancel') return;            // proceed
+      if (reason?.startsWith('retry:')) return { cancel: true }; // block engine-internal retries
+    },
+  },
+});
+```
+
+Nothing changes for the legacy `t:'error'` stream path — the adapter still emits errors directly to `onError`. What's new is that imperative `ctx.steer` / `ctx.abort` calls from inside any hook are now observable as first-class lifecycle events.
+
 ### `ctx.session(id, spec)` and `ctx.phase(name, body)`
 
 These are the SAME fluent API as the top-level `session(...)` / `phase(...)` you destructure from `taskflow().run(({ phase, session }) => ...)`. A hook handler can spawn follow-up work and the engine treats it identically to a hand-authored leaf:
@@ -390,7 +440,7 @@ beforeResponse  →  verifyTaskComplete  →  beforeTaskDone
 If any of those returns `{ retry: true, steerWith }` (or verify returns `{ done: false, remaining: [...], steerWith }`), the engine re-arms the session:
 
 - If the adapter exposes `handle.continueAfterDone(steerText)` (claude-code, mock), it resumes with preserved context.
-- Otherwise it re-spawns a fresh session with `steerText` appended to the task.
+- Otherwise it re-spawns a fresh session with `steerText` appended to the task. The re-spawn path **re-resolves** the adapter (via `resolveCurrentAdapter`), so a mid-session `h._adapterOverride` swap (e.g. a plugin rotating the live adapter between attempts) is observable on retry rather than pinned to whatever adapter was captured on the first spawn.
 
 The loop is bounded by `config.todos.maxRetries` (default 3). On exhaustion, the result's `status` is promoted to `'error'` and `error` names the unmet items:
 
@@ -417,6 +467,33 @@ export default defineConfig({
   todos: { maxRetries: 2 },
 });
 ```
+
+## DAG with dependsOn
+
+`SessionSpec.dependsOn?: string[]` declares explicit edges between sessions in the same harness run. The engine registers a resolution promise for every session as `leaf()` is entered (lazily), then waits on each listed id before spawning the current session. Reach for it when the dependency graph is easier to declare than to thread through JS control flow — e.g. a mid-phase merge step depending on siblings scheduled in the same `Promise.all`, or when you want the TUI / manifest to reflect the dependency shape explicitly. Plain `await` on the upstream session promise is still fine when the graph is linear.
+
+```ts
+import { taskflow } from 'taskflow';
+
+export default taskflow('fan-in').run(async ({ session }) => {
+  await Promise.all([
+    session('a', { with: 'claude-code', task: 'prep left side' }),
+    session('b', { with: 'opencode', task: 'prep right side' }),
+    session('c', {
+      with: 'claude-code',
+      task: 'merge a+b',
+      dependsOn: ['a', 'b'],
+    }),
+  ]);
+});
+```
+
+Rules:
+
+- **Unknown id throws.** If `dependsOn` lists an id no other session registers, the depender rejects with a clear error — typos surface immediately instead of deadlocking.
+- **Failed deps cascade.** If any dependency resolves with a non-`done` status or rejects, the depender rejects with `leaf "<id>" aborted: dependency failed — <upstream message>`.
+
+Ordering note: `dependsOn` is evaluated **before** the claim-conflict check, so a dep that releases a write-claim on completion unblocks a depender that would otherwise collide with the dep's `write` globs. Lazy registration on `leaf()` entry means dependers scheduled after dependees (the common case) still find the promise — order your `Promise.all` however reads naturally.
 
 ## forceGeneration & scope
 
