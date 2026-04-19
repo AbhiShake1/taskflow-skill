@@ -45,7 +45,7 @@ npx @taskflow-corp/cli@latest add user/repo/path/to/item.json
 npx @taskflow-corp/cli@latest add user/repo/path/to/item.json#v1.2.0
 
 # 7. bare name — built-in @taskflow registry (TASKFLOW_REGISTRY_URL)
-npx @taskflow-corp/cli@latest add ui-harness-trio
+npx @taskflow-corp/cli@latest add example-hello
 ```
 
 Rules when helping the user choose a form:
@@ -55,6 +55,31 @@ Rules when helping the user choose a form:
 - If the registry has auth/headers → they need a namespace entry in `taskflow.json` → form 5.
 - Don't mix schemes: `//subpath` and `?params` are Terraform-grammar features on form 2 only.
 
+### Auto-discovery
+
+**Trigger.** When the user types `taskflow add <user>/<repo>` with NO subpath AND the repo has no `registry-item.json` at HEAD on the default branch, the CLI auto-discovers every taskflow-looking harness in the repo (files that import `@taskflow-corp/cli` / `taskflow-cli` / `taskflowjs` / `taskflow-sdk` AND top-level-call `taskflow(...).run(...)`). This is form 6 without a path — it's now a first-class zero-config discovery flow, not an error.
+
+**What to expect in the terminal.**
+
+- 0 matches → the CLI errors out with "no taskflow harnesses found in `<repo>`". Don't retry; tell the user the repo has no harnesses.
+- 1 match → auto-installs with no prompt. Same flow as form 6 with a path.
+- >1 matches → **multi-select prompt** via `@clack/prompts`. Default nothing selected. User picks one or more. Every selection is installed.
+- **`--yes` with >1 matches is an ERROR**, not a default. It does NOT "install everything". If the user wants a non-interactive install of a specific file, tell them to use form 6 with the full path (`user/repo/path/file.ts`) instead of relying on `--yes` over discovery.
+
+**Skip conditions** — discovery is NOT invoked when:
+- The input has a path tail (`user/repo/some/file.ts`) → tarball fetch path.
+- The input is any form other than the bare `user/repo` shortcut.
+- The repo has a `registry-item.json` at HEAD → Tier 2 shortcut wins.
+
+**Proxy override.** The CLI calls a Cloudflare Pages Function by default (`/api/discover`, grep.app-backed with GitHub Code Search fallback, 10-min KV cache). Point `TASKFLOW_DISCOVER_URL` at a private proxy when the user needs one (enterprise mirror, local `wrangler pages dev`):
+
+```sh
+TASKFLOW_DISCOVER_URL=https://my-proxy.example.com/api/discover \
+  npx @taskflow-corp/cli@latest add AbhiShake1/taskflow
+```
+
+**`taskflow search` folds discovery in too.** `taskflow search <query>` now returns both (a) fuzzy-match hits against configured registries and (b) GitHub-wide discovery hits for harness files matching `<query>`. Use it when the user doesn't know which repo the harness lives in.
+
 ### Lifecycle commands
 
 | Command | Purpose |
@@ -63,7 +88,7 @@ Rules when helping the user choose a form:
 | `taskflow add <source...>` | Install one or more harnesses |
 | `taskflow view <source>` | Resolve + print JSON only (no install) — good for inspection |
 | `taskflow list` | Installed harnesses from `taskflow.lock` |
-| `taskflow search <query>` | Fuzzy-match against public registries index |
+| `taskflow search <query>` | Fuzzy-match local registries + auto-discover taskflow harnesses on GitHub |
 | `taskflow update [name...]` | Re-resolve and refresh |
 | `taskflow remove <name>` | Delete files + lockfile entry |
 | `taskflow apply <preset>` | `add --overwrite` alias |
