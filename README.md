@@ -8,13 +8,13 @@ Install once and you can say things like:
 - "Make a harness that plans with Opus, generates with Sonnet, and lints with Groq."
 - "Set up a multi-agent pipeline that reviews and rewrites these 20 files in parallel."
 
-Claude Code will author a real TypeScript harness under `tasks/` using the fluent API from [`taskflow-sdk`](https://www.npmjs.com/package/taskflow-sdk), preview the phase/session tree with `npm run plan`, and only execute after you confirm the shape.
+Claude Code will author a real TypeScript harness under `tasks/` using the fluent API from [`taskflowjs`](https://www.npmjs.com/package/taskflowjs), preview the phase/session tree with `npm run plan`, and only execute after you confirm the shape.
 
 ## Prerequisites
 
 - [ ] **Claude Code** ≥ latest — install via `npm install -g @anthropic-ai/claude-code` or the macOS/Windows app.
 - [ ] **Node.js ≥ 20** — check with `node --version`. Install via [nodejs.org](https://nodejs.org/) or `brew install node`.
-- [ ] **`taskflow-sdk` installed in the target project** — run `npm install taskflow-sdk` in whatever repo you want the harness to live in. The skill always uses this package.
+- [ ] **`taskflowjs` installed in the target project** — run `npm install taskflowjs` in whatever repo you want the harness to live in. The skill always uses this package.
 - [ ] **Provider API keys for whichever agents you invoke** — at minimum `ANTHROPIC_API_KEY` (for claude-code sessions). Others are optional per-session: `OPENAI_API_KEY`, `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `GEMINI_API_KEY`.
 - [ ] **Per-agent CLIs if you want them as sessions** — `claude-code`, `codex`, `cursor-agent`, `opencode`, `pi` must be on `PATH` for the adapters that shell out. Unused adapters can stay uninstalled.
 
@@ -61,7 +61,7 @@ The `SKILL.md` documents:
 
 ## Related
 
-- **SDK on npm**: [`taskflow-sdk`](https://www.npmjs.com/package/taskflow-sdk)
+- **SDK on npm**: [`taskflowjs`](https://www.npmjs.com/package/taskflowjs)
 - **Main repo**: [AbhiShake1/taskflow](https://github.com/AbhiShake1/taskflow)
 
 ## Risks & limits
@@ -69,7 +69,7 @@ The `SKILL.md` documents:
 - The harness **runs real AI agents** — each session bills against your provider accounts. Always preview with `npm run plan` before executing a new harness.
 - Sessions with overlapping `write:` globs will **throw before any execution starts** (intentional safety). Give each concurrent session a distinct write path.
 - Auto-todos + verify-loop will **re-engage the agent up to `maxRetries` times** (default 3) if any checkbox is unchecked. Budget accordingly for long tasks.
-- `taskflow-sdk`'s adapters assume the respective CLIs are on `PATH` with default flags. Non-standard installations may need `HARNESS_PI_BIN` etc. overrides.
+- `taskflowjs`'s adapters assume the respective CLIs are on `PATH` with default flags. Non-standard installations may need `HARNESS_PI_BIN` etc. overrides.
 
 ## Troubleshooting
 
