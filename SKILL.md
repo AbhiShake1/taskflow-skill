@@ -189,7 +189,7 @@ Taskflow auto-discovers a project-local config file at `.agents/taskflow/config.
 
 ```ts
 // .agents/taskflow/config.ts
-import { defineConfig } from 'taskflowjs/core/config';
+import { defineConfig } from 'taskflow-cli/core/config';
 
 export default defineConfig({
   // Hooks. Any subset of HookHandlers. See "Lifecycle hooks" below.
@@ -223,7 +223,7 @@ export default defineConfig({
 
 Defaults (see `core/config.ts` `DEFAULT_CONFIG`): `autoExtract: true`, `maxRetries: 3`, `errorPolicy: 'swallow'`, `timeoutMs: 30_000`, `forceGeneration: false`. `scope` is undefined.
 
-> **Until published:** `taskflowjs` is the upcoming published name. While developing inside this repo, import from relative paths: `import { defineConfig } from '../core/config';` or `import type { HookHandlers } from '../core/hooks';`.
+> **Until published:** `taskflow-cli` is the upcoming published name. While developing inside this repo, import from relative paths: `import { defineConfig } from '../core/config';` or `import type { HookHandlers } from '../core/hooks';`.
 
 ## Lifecycle hooks
 
@@ -359,7 +359,7 @@ interface HookCtx {
 
 ### `ctx.steer(text)` and `ctx.abort(reason)`
 
-Imperative actions that drive the live adapter handle. As of `taskflowjs@0.1.4` both now fire their corresponding lifecycle hooks:
+Imperative actions that drive the live adapter handle. As of `taskflow-cli@0.1.4` both now fire their corresponding lifecycle hooks:
 
 - `ctx.steer(text)` fires `beforeSteer` → (adapter.steer) → `afterSteer` with `{ leafId, content: text }`.
 - `ctx.abort(reason?)` fires `beforeAbort` → (adapter.abort) → `afterAbort` with `{ leafId, reason }`.
@@ -395,7 +395,7 @@ These are the SAME fluent API as the top-level `session(...)` / `phase(...)` you
 
 ```ts
 // .agents/taskflow/config.ts
-import { defineConfig } from 'taskflowjs/core/config';
+import { defineConfig } from 'taskflow-cli/core/config';
 
 export default defineConfig({
   events: {
@@ -566,13 +566,13 @@ interface PluginContribution {
 
 ```ts
 // my-plugin.ts
-import type { Plugin } from 'taskflowjs/core/plugin';
+import type { Plugin } from 'taskflow-cli/core/plugin';
 
 export interface AuditApi {
   trail: (msg: string) => Promise<void>;
 }
 
-declare module 'taskflowjs/core/hooks' {
+declare module 'taskflow-cli/core/hooks' {
   interface PluginNamespaces {
     audit: AuditApi;
   }
@@ -598,7 +598,7 @@ Mount it from config:
 
 ```ts
 // .agents/taskflow/config.ts
-import { defineConfig } from 'taskflowjs/core/config';
+import { defineConfig } from 'taskflow-cli/core/config';
 import { auditPlugin } from './plugins/audit';
 
 export default defineConfig({
