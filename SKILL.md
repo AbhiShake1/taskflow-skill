@@ -7,6 +7,16 @@ description: Author and run multi-agent orchestration harnesses with a async-awa
 
 A meta-tool for orchestrating parallel/sequential sessions, where each session runs one AI coding agent invocation. The agent and LLM model are chosen per-session, so cheap mechanical work runs on cheap models and stakes-high work runs on frontier models.
 
+## Installing prebuilt harnesses — `taskflow add`
+
+Instead of authoring from scratch, you can pull a ready-made harness into any project:
+
+```
+npx @taskflow-corp/cli add <source>
+```
+
+Source forms (first match wins): local `.json` → `type::url` qualified → raw URL → `@ns/name` → `github:user/repo` / bare `user/repo` shortcut → bare name (resolves via built-in `@taskflow` registry). Auto-scaffolds `taskflow.json`, `.agents/taskflow/config.ts`, `.agents/taskflow/harness/`, and a `taskflow.lock` on first use. Lockfile + `--frozen` give reproducibility for CI. Design notes: `docs/add-command-plan.md`. To publish a harness, author `registry/registry.json` + source `.ts` files, run `taskflow build`, host the emitted `r/` directory.
+
 ## When authoring or editing tasks/*.ts — ALWAYS plan first
 
 After writing or editing any `.ts` file under `tasks/`, IMMEDIATELY run `npm run plan -- tasks/<name>.ts` and share the rendered phase/session tree back to the user before asking whether to execute. This is a hard rule — do not offer to run, do not assume shape, preview first.
